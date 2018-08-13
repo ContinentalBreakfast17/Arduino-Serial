@@ -67,7 +67,7 @@ func (arduino *Arduino) DigitalWrite(pin, val int) (int, error) {
 }
 
 func (arduino *Arduino) AnalogWrite(pin int, val uint8) (int, error) {
-	if !in(arduino.model.PWM, pin) {
+	if !in(arduino.model.PWM, pin+1) {
 		return -1, errors.New(fmt.Sprintf("arduino_serial: Invalid pwm pin '%d' for model '%s'", pin, arduino.model.Name))
 	}
 
