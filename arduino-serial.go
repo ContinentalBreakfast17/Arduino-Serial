@@ -63,7 +63,7 @@ func (arduino *Arduino) DigitalWrite(pin, val int) (int, error) {
 		return -1, errors.New(fmt.Sprintf("arduino_serial: Invalid digital write value of '%d'", val))
 	}
 
-	return arduino.write(pin, val, fmt.Sprintf("digital_write %d %d", pin, val))
+	return arduino.write(pin, val, fmt.Sprintf("digital_write %d %d", pin, val), true)
 }
 
 func (arduino *Arduino) AnalogWrite(pin int, val uint8) (int, error) {
@@ -71,10 +71,10 @@ func (arduino *Arduino) AnalogWrite(pin int, val uint8) (int, error) {
 		return -1, errors.New(fmt.Sprintf("arduino_serial: Invalid pwm pin '%d' for model '%s'", pin, arduino.model.Name))
 	}
 
-	return arduino.write(pin, int(val), fmt.Sprintf("analog_write %d %d", pin, val))
+	return arduino.write(pin, int(val), fmt.Sprintf("analog_write %d %d", pin, val), true)
 }
 
-func (arduino *Arduino) write(pin, val int, msg string) (int, error) {
+func (arduino *Arduino) write(pin, val int, msg string, checkResponse bool) (int, error) {
 	raw_msg := make([]byte, MESSAGE_SIZE)
 	for i := 0; i < MESSAGE_SIZE; i++ {
 		raw_msg[i] = ' '
@@ -92,6 +92,10 @@ func (arduino *Arduino) write(pin, val int, msg string) (int, error) {
 		return -1, err
 	} else if n != MESSAGE_SIZE {
 		return -1, errors.New(fmt.Sprintf("arduino_serial: Need a larger timeout fool - only %d bytes waiting", n))
+	}
+
+	if !checkResponse {
+		return 0, nil
 	}
 
 	resp, err := arduino.getResponse(pin)
@@ -125,7 +129,7 @@ func (arduino *Arduino) AnalogRead(pin int) (float32, error) {
 }
 
 func (arduino *Arduino) read(msg string, pin int) (int, error) {
-	return arduino.write(pin, -1, msg)
+	return arduino.write(pin, -1, msg, true)
 }
 
 // should change to return and int slice for functions with more/less than 2 vals
@@ -160,7 +164,11 @@ func (arduino *Arduino) SetPinMode(pin, mode int) (int, error) {
 		return -1, errors.New(fmt.Sprintf("arduino_serial: Invalid pinMode value of '%d'", mode))
 	}
 
-	return arduino.write(pin, mode, fmt.Sprintf("set_pin_mode %d %d", pin, mode))
+	return arduino.write(pin, mode, fmt.Sprintf("set_pin_mode %d %d", pin, mode), true)
+}
+
+func (arduino *Arduino) CustomCommand(command, parameters string) error {
+	return arduino.write(0, 0, fmt.Sprintf("%s %s", command, parameters), false)
 }
 
 func in(haystack []int, needle int) bool {
