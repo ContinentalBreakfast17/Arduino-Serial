@@ -168,7 +168,8 @@ func (arduino *Arduino) SetPinMode(pin, mode int) (int, error) {
 }
 
 func (arduino *Arduino) CustomCommand(command, parameters string) error {
-	return arduino.write(0, 0, fmt.Sprintf("%s %s", command, parameters), false)
+	_, err := arduino.write(0, 0, fmt.Sprintf("%s %s", command, parameters), false)
+	return err
 }
 
 func in(haystack []int, needle int) bool {
