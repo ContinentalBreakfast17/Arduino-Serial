@@ -1,5 +1,3 @@
-#include "TTS.h"
-
 // all communications will be as long as the macro below
 #define MESSAGE_SIZE 	32
 // feel free to change the baud rate as desired
@@ -14,8 +12,14 @@
 #define ERR_BAD_PARAMS	3
 #define ERR_UNKWN_CMD 	4
 
+// the following can be used for automation purposes
+#ifdef  BAUD_OVERRIDE
+#define SPEED BAUD_OVERRIDE
+#else
+#define SPEED BAUDRATE
+#endif
+
 char* buffer;
-TTS tts(10);
 
 int doCommand(char* params, int (*function)(int*), int argc);
 void success(int v1, int v2);
@@ -33,12 +37,10 @@ void setup() {
 	// initialize any pins as needed here
 	// setting pins to output may help if you are experiencing irregular voltage floating on startup
 	pinMode(ERROR_PIN, OUTPUT);
-	pinMode(4, OUTPUT);
-  tts.setPitch(8);
 
 	buffer = (char*)malloc(sizeof(char)*(MESSAGE_SIZE + 1));
 	buffer[MESSAGE_SIZE] = 0;
-	Serial.begin(BAUDRATE);
+	Serial.begin(SPEED);
 }
 
 void loop() {
@@ -114,7 +116,6 @@ void error(const char* error_message, int blinks) {
 
 	Serial.print(msg);
 	blink(blinks);
-	tts.sayText(error_message);
 }
 
 void blink(int blinks) {

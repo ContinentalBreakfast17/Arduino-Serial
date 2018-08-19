@@ -11,45 +11,59 @@ import (
 )
 
 type Arduino struct {
+	ModelName	string
+	Baud 		int
+	InitWait	time.Duration
+	SerWait		time.Duration
+	// add in serial options
 	port 		*serial.Port
 	model 		config
 }
 
 type config struct {
-	Name 		string
 	Pins 		int
 	AnalogPins	int
 	PWM 		[]int
 }
 
-func Connect(model, port string, baudrate int) (*Arduino, error) {
-	loadModels()
+func NewArduino(model, port string, baudrate int) (*Arduino, error) {
+	arduino := &Arduino{
+		ModelName: model,
+		Baud: baudrate,
+		InitWait: 2*time.Second,
+		SerWait: 3*time.Millisecond,
+	}
+	err := arduino.Connect(port)
+	return arduino, err
+}
+
+func (arduino *Arduino) Connect(port string) error {
+	models := loadModels()
 
 	var err error
 	var ok bool
-	arduino := Arduino{}
-	arduino.model, ok = models[model]
+	arduino.model, ok = models[arduino.ModelName]
 	if !ok {
-		return nil, errors.New(fmt.Sprintf("arduino_serial: Unsupported model name '%s'", model))
+		return errors.New(fmt.Sprintf("arduino_serial: Unsupported model name '%s'", arduino.ModelName))
 	}
 
 	options := serial.RawOptions
-	options.BitRate = baudrate // make sure this will cause serial.Open to error with improper baudrate
+	options.BitRate = arduino.Baud
 	options.Mode = serial.MODE_READ_WRITE
 
 	arduino.port, err = options.Open(port)
 	if err != nil {
-		return nil, err
+		return errors.New(fmt.Sprintf("Failed to open port: %v", err))
 	}
 
 	err = arduino.port.Reset()
 	if err != nil {
-		return nil, err
+		return errors.New(fmt.Sprintf("Failed to reset port: %v", err))
 	}
 
-	time.Sleep(2 * time.Second)
+	time.Sleep(arduino.InitWait)
 
-	return &arduino, nil
+	return nil
 }
 
 func (arduino *Arduino) Disconnect() error {
@@ -58,7 +72,7 @@ func (arduino *Arduino) Disconnect() error {
 
 func (arduino *Arduino) DigitalWrite(pin, val int) (int, error) {
 	if pin > arduino.model.Pins {
-		return -1, errors.New(fmt.Sprintf("arduino_serial: Invalid pin '%d' for model '%s'", pin, arduino.model.Name))
+		return -1, errors.New(fmt.Sprintf("arduino_serial: Invalid pin '%d' for model '%s'", pin, arduino.ModelName))
 	} else if val != DIGITAL_HIGH && val != DIGITAL_LOW {
 		return -1, errors.New(fmt.Sprintf("arduino_serial: Invalid digital write value of '%d'", val))
 	}
@@ -68,10 +82,43 @@ func (arduino *Arduino) DigitalWrite(pin, val int) (int, error) {
 
 func (arduino *Arduino) AnalogWrite(pin int, val uint8) (int, error) {
 	if !in(arduino.model.PWM, pin) {
-		return -1, errors.New(fmt.Sprintf("arduino_serial: Invalid pwm pin '%d' for model '%s'", pin, arduino.model.Name))
+		return -1, errors.New(fmt.Sprintf("arduino_serial: Invalid pwm pin '%d' for model '%s'", pin, arduino.ModelName))
 	}
 
 	return arduino.write(pin, int(val), fmt.Sprintf("analog_write %d %d", pin, val))
+}
+
+func (arduino *Arduino) DigitalRead(pin int) (int, error) {
+	// can digital read from analog pins by adding the number of digital pins to the desired analog pin
+	if pin > arduino.model.Pins + arduino.model.AnalogPins {
+		return 0, errors.New(fmt.Sprintf("arduino_serial: Invalid pin '%d' for model '%s'", pin, arduino.ModelName))
+	}
+
+	return arduino.read(fmt.Sprintf("digital_read %d", pin), pin)
+}
+
+func (arduino *Arduino) AnalogRead(pin int) (float32, error) {
+	if pin > arduino.model.AnalogPins {
+		return 0, errors.New(fmt.Sprintf("arduino_serial: Invalid pin '%d' for model '%s'", pin, arduino.ModelName))
+	}
+
+	val, err := arduino.read(fmt.Sprintf("analog_read %d", pin), pin)
+	return float32(val*5)/1023, err
+}
+
+func (arduino *Arduino) SetPinMode(pin, mode int) (int, error) {
+	if pin > arduino.model.Pins {
+		return -1, errors.New(fmt.Sprintf("arduino_serial: Invalid pin '%d' for model '%s'", pin, arduino.ModelName))
+	} else if mode != MODE_OUTPUT && mode != MODE_INPUT && mode != MODE_PULLUP {
+		return -1, errors.New(fmt.Sprintf("arduino_serial: Invalid pinMode value of '%d'", mode))
+	}
+
+	return arduino.write(pin, mode, fmt.Sprintf("set_pin_mode %d %d", pin, mode))
+}
+
+func (arduino *Arduino) CustomCommand(command, parameters string) error {
+	_, err := arduino.write(-1, -1, fmt.Sprintf("%s %s", command, parameters))
+	return err
 }
 
 func (arduino *Arduino) write(pin, val int, msg string) (int, error) {
@@ -86,7 +133,7 @@ func (arduino *Arduino) write(pin, val int, msg string) (int, error) {
 		return -1, err
 	}
 
-	time.Sleep(75 * time.Millisecond)
+	time.Sleep(baudWait(arduino.Baud) * time.Millisecond)
 	n, err := arduino.port.InputWaiting()
 	if err != nil {
 		return -1, err
@@ -104,24 +151,6 @@ func (arduino *Arduino) write(pin, val int, msg string) (int, error) {
 	}
 
 	return resp, nil
-}
-
-func (arduino *Arduino) DigitalRead(pin int) (int, error) {
-	// can digital read from analog pins by adding the number of digital pins to the desired analog pin
-	if pin > arduino.model.Pins + arduino.model.AnalogPins {
-		return 0, errors.New(fmt.Sprintf("arduino_serial: Invalid pin '%d' for model '%s'", pin, arduino.model.Name))
-	}
-
-	return arduino.read(fmt.Sprintf("digital_read %d", pin), pin)
-}
-
-func (arduino *Arduino) AnalogRead(pin int) (float32, error) {
-	if pin > arduino.model.AnalogPins {
-		return 0, errors.New(fmt.Sprintf("arduino_serial: Invalid pin '%d' for model '%s'", pin, arduino.model.Name))
-	}
-
-	val, err := arduino.read(fmt.Sprintf("analog_read %d", pin), pin)
-	return float32(val*5)/1023, err
 }
 
 func (arduino *Arduino) read(msg string, pin int) (int, error) {
@@ -151,21 +180,6 @@ func (arduino *Arduino) getResponse(expected int) (int, error) {
 	}
 
 	return strconv.Atoi(vals[1])
-}
-
-func (arduino *Arduino) SetPinMode(pin, mode int) (int, error) {
-	if pin > arduino.model.Pins {
-		return -1, errors.New(fmt.Sprintf("arduino_serial: Invalid pin '%d' for model '%s'", pin, arduino.model.Name))
-	} else if mode != MODE_OUTPUT && mode != MODE_INPUT && mode != MODE_PULLUP {
-		return -1, errors.New(fmt.Sprintf("arduino_serial: Invalid pinMode value of '%d'", mode))
-	}
-
-	return arduino.write(pin, mode, fmt.Sprintf("set_pin_mode %d %d", pin, mode))
-}
-
-func (arduino *Arduino) CustomCommand(command, parameters string) error {
-	_, err := arduino.write(-1, -1, fmt.Sprintf("%s %s", command, parameters))
-	return err
 }
 
 func in(haystack []int, needle int) bool {
