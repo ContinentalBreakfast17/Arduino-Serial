@@ -133,7 +133,7 @@ func (arduino *Arduino) write(pin, val int, msg string) (int, error) {
 		return -1, err
 	}
 
-	time.Sleep(baudWait(arduino.Baud) * time.Millisecond)
+	time.Sleep((baudWait(arduino.Baud) * time.Millisecond) + arduino.SerWait)
 	n, err := arduino.port.InputWaiting()
 	if err != nil {
 		return -1, err
