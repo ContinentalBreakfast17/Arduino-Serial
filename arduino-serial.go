@@ -31,7 +31,6 @@ func NewArduino(model, port string, baudrate int) (*Arduino, error) {
 		ModelName: model,
 		Baud: baudrate,
 		InitWait: 2*time.Second,
-		SerWait: 3*time.Millisecond,
 	}
 	err := arduino.Connect(port)
 	return arduino, err
@@ -70,22 +69,24 @@ func (arduino *Arduino) Disconnect() error {
 	return arduino.port.Close()
 }
 
-func (arduino *Arduino) DigitalWrite(pin, val int) (int, error) {
+func (arduino *Arduino) DigitalWrite(pin, val int) error {
 	if pin > arduino.model.Pins {
-		return -1, errors.New(fmt.Sprintf("arduino_serial: Invalid pin '%d' for model '%s'", pin, arduino.ModelName))
+		return errors.New(fmt.Sprintf("arduino_serial: Invalid pin '%d' for model '%s'", pin, arduino.ModelName))
 	} else if val != DIGITAL_HIGH && val != DIGITAL_LOW {
-		return -1, errors.New(fmt.Sprintf("arduino_serial: Invalid digital write value of '%d'", val))
+		return errors.New(fmt.Sprintf("arduino_serial: Invalid digital write value of '%d'", val))
 	}
 
-	return arduino.write(pin, val, fmt.Sprintf("digital_write %d %d", pin, val))
+	_, err := arduino.write(pin, val, fmt.Sprintf("digital_write %d %d", pin, val))
+	return err
 }
 
-func (arduino *Arduino) AnalogWrite(pin int, val uint8) (int, error) {
+func (arduino *Arduino) AnalogWrite(pin int, val uint8) error {
 	if !in(arduino.model.PWM, pin) {
-		return -1, errors.New(fmt.Sprintf("arduino_serial: Invalid pwm pin '%d' for model '%s'", pin, arduino.ModelName))
+		return errors.New(fmt.Sprintf("arduino_serial: Invalid pwm pin '%d' for model '%s'", pin, arduino.ModelName))
 	}
 
-	return arduino.write(pin, int(val), fmt.Sprintf("analog_write %d %d", pin, val))
+	_, err := arduino.write(pin, int(val), fmt.Sprintf("analog_write %d %d", pin, val))
+	return err
 }
 
 func (arduino *Arduino) DigitalRead(pin int) (int, error) {
@@ -133,12 +134,9 @@ func (arduino *Arduino) write(pin, val int, msg string) (int, error) {
 		return -1, err
 	}
 
-	time.Sleep((baudWait(arduino.Baud) * time.Millisecond) + arduino.SerWait)
-	n, err := arduino.port.InputWaiting()
+	err = arduino.wait()
 	if err != nil {
-		return -1, err
-	} else if n != MESSAGE_SIZE {
-		return -1, errors.New(fmt.Sprintf("arduino_serial: Need a larger timeout fool - only %d bytes waiting", n))
+		return -1, errors.New(fmt.Sprintf("arduino_serial: Failed to get response from arduino: %v", err))
 	}
 
 	resp, err := arduino.getResponse(pin)
@@ -155,6 +153,25 @@ func (arduino *Arduino) write(pin, val int, msg string) (int, error) {
 
 func (arduino *Arduino) read(msg string, pin int) (int, error) {
 	return arduino.write(pin, -1, msg)
+}
+
+func (arduino *Arduino) wait() error {
+	available := 0
+	for available < MESSAGE_SIZE{
+		time.Sleep((baudWait(arduino.Baud) * time.Millisecond) + arduino.SerWait)
+		n, err := arduino.port.InputWaiting()
+		if err != nil {
+			return err
+		} else if n <= 0 {
+			break
+		}
+		available += n
+	}
+
+	if available != MESSAGE_SIZE {
+		return errors.New(fmt.Sprintf("Wrong message size: %d", available))
+	}
+	return nil
 }
 
 // should change to return and int slice for functions with more/less than 2 vals
